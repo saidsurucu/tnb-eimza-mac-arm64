@@ -69,9 +69,30 @@ yalnızca NSIS kurucusu. macOS'ta iki şey bozuk:
    sürücüsü listede değil — kart takılı olsa bile sertifika listesi boş gelir.
    → **Çözüm:** AKİS dahil genişletilmiş, dosya varlığına göre çözülen liste.
 
-Ek olarak (`patch/Patch.java`):
+`sunpkcs11-wrapper` IAIK API'sinin birebir kopyası değil; uygulamanın çağırdığı
+bazı üyeler orada yok. Bunlar `patch/Patch.java` içindeki **shim** ile geri
+ekleniyor — en kritiği `Mechanism.RSA_PKCS`: sertifika listeleme `Mechanism`'e
+hiç dokunmadığı için sorunsuz çalışıyor, ama **imzalama** tam olarak orada
+`NoSuchFieldError` ile duruyordu. Eklenenler:
 
-- `objects.Object` → `objects.PKCS11Object` (yeni wrapper'daki tek ad değişikliği)
+| Üye | Neden gerekli |
+|---|---|
+| `Mechanism.RSA_PKCS` (ve `RSA_X_509`, `RSA_9796`, `RSA_PKCS_OAEP`, `RSA_PKCS_KEY_PAIR_GEN`) | imzalama mekanizması |
+| `Session.decrypt(byte[])` / `encrypt(byte[])` | şifreli KEP içeriği |
+| `Functions.toFullHexString(int)` | PKCS#11 hata kodu → okunabilir mesaj (örn. `CKR_PIN_INCORRECT`) |
+| `Module.getInstance(String,String)` | ölü dal; yalnızca doğrulayıcı için |
+
+Bu tür bir eksik **derleme sırasında görünmez**, ancak kullanıcı o özelliği
+çalıştırınca patlar. Bu yüzden derleme hattında iki zorunlu denetim var:
+
+- `patch/ApiCheck.java` — uygulamanın çağırdığı **her** `iaik.*` üyesini sabit
+  havuzundan çıkarıp yeni wrapper'da var mı diye bakar (125 referans).
+- `patch/ShimTest.java` — shim'i yamalı jar'a karşı gerçekten çalıştırır
+  (statik denetim `<clinit>` hatasını yakalayamaz).
+
+Diğer yamalar:
+
+- `objects.Object` → `objects.PKCS11Object` (yeni wrapper'daki ad değişikliği)
 - Chrome host'u `argv[1]`'de eklenti kaynağını geçirir; orijinal kod orada
   `"Chrome"` bekler → argüman zorlanıyor
 - Loglar ev dizininin köküne değil `~/Library/Logs/TNBTeknolojiImza/` altına
@@ -107,14 +128,21 @@ make uninstall  # kaydı ve uygulamayı kaldır
   Sonra `make run` ile hangi modüllerin denendiğine bakın.
 - **Kart okunmuyor:** Kart takılı ve okuyucu bağlı mı? `pkcs11-tool --module /usr/local/lib/libakisp11.dylib -L`
 - **Gatekeeper "açılamıyor":** Uygulamaya sağ tık → **Aç** (ad-hoc imzalı).
-- **Loglar:** `~/Library/Logs/TNBTeknolojiImza/TnbTeknolojiImza.log` ve `.err.log`
+- **"Veri imzalanırken bir hata oluştu. … java konsoluna bakınız":** Uygulamanın
+  kastettiği "java konsolu" bu portta şu iki dosyadır:
+  ```bash
+  tail -100 ~/Library/Logs/TNBTeknolojiImza/TnbTeknolojiImza.err.log
+  tail -100 ~/Library/Logs/TNBTeknolojiImza/TnbTeknolojiImza.log
+  ```
 
 ## Bilinen sınırlar
 
 - Yalnızca **arm64** (Apple Silicon); Intel Mac desteklenmez.
 - **Notarize edilmemiştir** (ad-hoc imza).
-- **İmzalama (PIN girişi) ve tarayıcı üzerinden uçtan uca giriş akışı
-  doğrulanmamıştır**; doğrulanan adım sertifika okuma/seçmedir.
+- **İmzalama (PIN girişi) gerçek kartla henüz onaylanmadı.** İlk sürümde
+  imzalama `Mechanism.RSA_PKCS` eksikliği yüzünden hata veriyordu; bu giderildi
+  ve hem statik hem çalışma zamanı denetimiyle doğrulandı, ancak PIN girilerek
+  yapılan uçtan uca bir imza testi henüz raporlanmadı.
 - Kart tipi: **AKİS**. Diğer token'lar (SafeNet, SafeSign, IDPrime) listeye
   eklendi ama test edilmedi.
 - CSP (Windows'a özgü) yolu desteklenmez; yalnızca PKCS#11.

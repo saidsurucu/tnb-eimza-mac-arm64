@@ -5,7 +5,10 @@ import java.util.List;
 import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtConstructor;
+import javassist.CtField;
 import javassist.CtMethod;
+import javassist.CtNewMethod;
+import javassist.Modifier;
 import javassist.expr.ExprEditor;
 import javassist.expr.NewExpr;
 
@@ -46,6 +49,8 @@ public final class Patch {
 
         ClassPool cp = ClassPool.getDefault();
         cp.insertClassPath(dir);
+
+        shim(cp, dir);
 
         // --- 1) objects.Object -> objects.PKCS11Object -------------------------
         List<String> appClasses = classesUnder(new File(dir, "com"), dir);
@@ -109,6 +114,93 @@ public final class Patch {
         say("MainApplet.main: tarayici argumani zorlandi + log yolu ~/Library/Logs");
 
         app.writeFile(dir);
+    }
+
+    /**
+     * sunpkcs11-wrapper, IAIK API'sinin birebir kopyasi degil. Uygulamanin
+     * cagirdigi ama yeni wrapper'da bulunmayan uyeleri buraya ekliyoruz.
+     * Eksik liste ApiCheck ile bulundu; en kritigi Mechanism.RSA_PKCS —
+     * imzalama tam olarak orada NoSuchFieldError ile duruyordu (sertifika
+     * listeleme Mechanism'e hic dokunmadigi icin sorunsuz calisiyordu).
+     */
+    private static void shim(ClassPool cp, String dir) throws Exception {
+        // --- Mechanism: IAIK'te hazir sabitler vardi, burada yalnizca
+        //     Mechanism.get(long) var. PKCS#11 CKM_* kodlariyla geri ekliyoruz.
+        CtClass mech = cp.get("iaik.pkcs.pkcs11.Mechanism");
+        String[][] constants = {
+            { "RSA_PKCS_KEY_PAIR_GEN", "0" },   // CKM_RSA_PKCS_KEY_PAIR_GEN
+            { "RSA_PKCS",              "1" },   // CKM_RSA_PKCS       <- imzalama
+            { "RSA_9796",              "2" },   // CKM_RSA_9796
+            { "RSA_X_509",             "3" },   // CKM_RSA_X_509
+            { "RSA_PKCS_OAEP",         "9" },   // CKM_RSA_PKCS_OAEP
+        };
+        StringBuilder init = new StringBuilder("{");
+        for (String[] c : constants) {
+            // final YAPMA: Javassist derleyicisi <clinit> icinde final alana
+            // atamayi reddediyor; uygulama bu alanlari yalnizca okuyor.
+            CtField f = new CtField(mech, c[0], mech);
+            f.setModifiers(Modifier.PUBLIC | Modifier.STATIC);
+            mech.addField(f);
+            init.append("iaik.pkcs.pkcs11.Mechanism.").append(c[0])
+                .append(" = iaik.pkcs.pkcs11.Mechanism.get(").append(c[1]).append("L);");
+        }
+        init.append("}");
+        mech.makeClassInitializer().insertAfter(init.toString());
+        mech.writeFile(dir);
+        say("shim: Mechanism.{RSA_PKCS, RSA_X_509, RSA_9796, RSA_PKCS_OAEP,"
+                + " RSA_PKCS_KEY_PAIR_GEN} sabitleri eklendi");
+
+        // --- Session: IAIK'te tek argumanli encrypt/decrypt vardi; burada
+        //     yalnizca tampon veren 6 argumanli surumler var.
+        CtClass session = cp.get("iaik.pkcs.pkcs11.Session");
+        for (String op : new String[] { "encrypt", "decrypt" }) {
+            session.addMethod(CtNewMethod.make(
+                "public byte[] " + op + "(byte[] in)"
+                    + " throws iaik.pkcs.pkcs11.TokenException {"
+                    // RSA icin cikti anahtar boyutunu asmaz; 512 bayt pay yeter.
+                    + "  byte[] buf = new byte[in.length + 512];"
+                    + "  int n = this." + op + "(in, 0, in.length, buf, 0, buf.length);"
+                    + "  byte[] out = new byte[n];"
+                    + "  java.lang.System.arraycopy(buf, 0, out, 0, n);"
+                    + "  return out;"
+                    + "}", session));
+        }
+        session.writeFile(dir);
+        say("shim: Session.encrypt(byte[]) / Session.decrypt(byte[]) eklendi");
+
+        // --- Functions.toFullHexString(int): hata kodunu
+        //     ExceptionMessages.properties anahtar bicimine cevirir
+        //     (8 hane, buyuk harf, sifir dolgulu -> "000000A0" = CKR_PIN_INCORRECT).
+        CtClass functions = cp.get("iaik.pkcs.pkcs11.wrapper.Functions");
+        functions.addMethod(CtNewMethod.make(
+            "public static java.lang.String toFullHexString(int value) {"
+                + "  java.lang.String s ="
+                + "    java.lang.Integer.toHexString(value).toUpperCase();"
+                + "  java.lang.StringBuffer b = new java.lang.StringBuffer();"
+                + "  for (int i = s.length(); i < 8; i++) { b.append('0'); }"
+                + "  b.append(s);"
+                + "  return b.toString();"
+                + "}", functions));
+        functions.writeFile(dir);
+        say("shim: Functions.toFullHexString(int) eklendi (hata kodu -> mesaj)");
+
+        // --- Module.getInstance(modul, nativeWrapper): (2) numarali yama
+        //     yuzunden artik cagrilmiyor ama sabit havuzunda referans duruyor;
+        //     dogrulayici tatmin olsun diye tek argumanliya yonlendiriyoruz.
+        CtClass module = cp.get("iaik.pkcs.pkcs11.Module");
+        module.addMethod(CtNewMethod.make(
+            "public static iaik.pkcs.pkcs11.Module getInstance("
+                + "java.lang.String modulePath, java.lang.String wrapperPath)"
+                + " throws java.io.IOException {"
+                + "  return iaik.pkcs.pkcs11.Module.getInstance(modulePath);"
+                + "}", module));
+        module.writeFile(dir);
+        say("shim: Module.getInstance(String,String) eklendi (olu dal)");
+
+        mech.detach();
+        session.detach();
+        functions.detach();
+        module.detach();
     }
 
     private static CtMethod method(CtClass ct, String name) throws Exception {

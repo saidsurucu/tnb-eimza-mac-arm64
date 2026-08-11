@@ -65,11 +65,26 @@ echo ">> yardimci siniflar derleniyor"
 
 echo ">> bytecode yamalari uygulaniyor"
 "$JDK/bin/javac" -nowarn -encoding UTF-8 -cp "$JAVASSIST_JAR" -d "$WORK/patcher" \
-  "$ROOT/patch/Patch.java"
+  "$ROOT/patch/Patch.java" "$ROOT/patch/ApiCheck.java"
 "$JDK/bin/java" -cp "$JAVASSIST_JAR:$WORK/patcher" Patch "$WORK/classes"
+
+# sunpkcs11-wrapper IAIK API'sinin birebir kopyasi degil. Uygulamanin cagirdigi
+# her iaik.* uyesi gercekten var mi? Eksik bir uye derlemede GORULMEZ, ancak
+# kullanici o ozelligi calistirinca (orn. imzalama) NoSuchFieldError/
+# NoSuchMethodError olarak patlar. Bu yuzden paketlemeden once zorunlu denetim.
+echo ">> API uyumlulugu denetleniyor"
+"$JDK/bin/java" -cp "$JAVASSIST_JAR:$WORK/patcher" ApiCheck "$WORK/classes"
 
 echo ">> yamali jar paketleniyor"
 ( cd "$WORK/classes" && zip -qr "$OUT_JAR" . )
+
+# ApiCheck statik; <clinit> icinde patlayan bir shim'i goremez. Bu yuzden
+# uyeleri yamali jar'a karsi gercekten calistirip dogruluyoruz.
+echo ">> shim calisma zamaninda dogrulaniyor"
+"$JDK/bin/javac" -nowarn -encoding UTF-8 -cp "$OUT_JAR" -d "$WORK/patcher" \
+  "$ROOT/patch/ShimTest.java"
+"$JDK/bin/java" --add-exports=jdk.crypto.cryptoki/sun.security.pkcs11.wrapper=ALL-UNNAMED \
+  -cp "$OUT_JAR:$WORK/patcher" ShimTest
 
 # Dogrulama: native kalinti kalmasin, yeni wrapper gercekten iceride olsun.
 # NOT: `unzip -l | grep -q` KULLANMA — grep ilk eslesmede cikinca unzip SIGPIPE

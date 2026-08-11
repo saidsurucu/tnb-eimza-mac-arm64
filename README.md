@@ -7,6 +7,9 @@ aynı Java uygulamasını gömülü **arm64 Java 11** runtime ile native bir `.a
 olarak paketler ve Chrome'a *native messaging host* olarak kaydeder.
 Rosetta veya ayrı Java kurulumu gerekmez.
 
+Apple Silicon bir Mac'te, gerçek AKİS kartı ve PIN ile **`kep.hs02.kep.tr`
+girişi uçtan uca çalıştığı doğrulanmıştır.**
+
 ## Kurulum (tek komut)
 
 ```bash
@@ -113,11 +116,14 @@ Diğer yamalar:
 Paketleme: `jpackage` + Zulu 11 arm64 (`--runtime-image`), ASCII executable adı,
 ad-hoc `codesign`.
 
-Gerçek AKİS kartıyla sertifika okuma uçtan uca doğrulanmıştır: uygulamaya
-Chrome'un çerçeve biçiminde (4 bayt little-endian uzunluk + JSON)
-`selectCertificate` isteği verildiğinde `status: 200` ve karttaki nitelikli
-elektronik imza sertifikası doğru çerçevelenmiş olarak stdout'a dönüyor.
-Aynı denemeyi `make run` ile siz de yapabilirsiniz.
+**Durum: çalışıyor.** Gerçek AKİS kartı ve PIN ile, Chrome üzerinden
+`kep.hs02.kep.tr` girişi Apple Silicon bir Mac'te uçtan uca doğrulandı —
+sertifika seçimi, PIN girişi ve imzalama dahil.
+
+Kart takılıyken `make run` ile tarayıcısız hızlı bir kontrol de
+yapabilirsiniz: uygulamaya Chrome'un çerçeve biçiminde (4 bayt little-endian
+uzunluk + JSON) `selectCertificate` isteği verilir; `status: 200` ve karttaki
+nitelikli sertifika doğru çerçevelenmiş olarak dönmelidir.
 
 ## Elle derleme
 
@@ -152,12 +158,12 @@ make uninstall  # kaydı ve uygulamayı kaldır
 
 - Yalnızca **arm64** (Apple Silicon); Intel Mac desteklenmez.
 - **Notarize edilmemiştir** (ad-hoc imza).
-- **İmzalama (PIN girişi) gerçek kartla henüz onaylanmadı.** İlk sürümde
-  imzalama `Mechanism.RSA_PKCS` eksikliği yüzünden hata veriyordu; bu giderildi
-  ve hem statik hem çalışma zamanı denetimiyle doğrulandı, ancak PIN girilerek
-  yapılan uçtan uca bir imza testi henüz raporlanmadı.
-- Kart tipi: **AKİS**. Diğer token'lar (SafeNet, SafeSign, IDPrime) listeye
-  eklendi ama test edilmedi.
+- Kart tipi: **AKİS** (doğrulanan). Diğer token'lar (SafeNet, SafeSign,
+  IDPrime, OpenSC) sürücü listesine eklendi ama donanım olmadığı için test
+  edilmedi.
+- **Şifre çözme (`decrypt`) test edilmedi.** Şifreli KEP içeriği için gereken
+  `Session.decrypt(byte[])` shim ile eklendi ve API denetiminden geçiyor, ancak
+  gerçek şifreli bir iletiyle denenmedi.
 - CSP (Windows'a özgü) yolu desteklenmez; yalnızca PKCS#11.
 - `app/TNBTeknolojiImza.jar` üreticinin dağıttığı kurucudan çıkarılmıştır;
   bu depo onu **değiştirmeden** saklar, yamalar derleme sırasında `build/`

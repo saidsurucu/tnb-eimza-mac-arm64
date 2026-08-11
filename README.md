@@ -47,8 +47,10 @@ Doğrulama (`arm64` içermeli):
 lipo -archs /usr/local/lib/libakisp11.dylib
 ```
 
-Denenen sürücüler ve sıraları için bkz. `patch/MacPkcs11Modules.java`.
-Listeyi geçici olarak değiştirmek için `-Dtnb.pkcs11.modules=/yol/surucu.dylib`.
+Bilinen sürücü adları bilinen dizinlerde taranır ve **yalnızca diskte gerçekten
+var olan** yollar denenir; liste ve arama dizinleri için bkz.
+`patch/MacPkcs11Modules.java`. Listeyi geçici olarak değiştirmek için
+`-Dtnb.pkcs11.modules=/yol/surucu.dylib`.
 
 ## Teknik özet
 
@@ -82,13 +84,24 @@ hiç dokunmadığı için sorunsuz çalışıyor, ama **imzalama** tam olarak or
 | `Functions.toFullHexString(int)` | PKCS#11 hata kodu → okunabilir mesaj (örn. `CKR_PIN_INCORRECT`) |
 | `Module.getInstance(String,String)` | ölü dal; yalnızca doğrulayıcı için |
 
+Bir de davranış farkı var: **`Module.finalize()` işlevsizleştirildi.** Uygulama
+her istekte önce `deinitShell()` (modül başına `C_Finalize`) sonra `initShell()`
+çağırıyor. SunPKCS11 ise modülü *yol başına önbelleklediği* ve `C_Initialize`'ı
+yalnızca örneği ilk kez oluştururken çağırdığı için, `C_Finalize` sonrası
+yeniden başlatma sessizce atlanıyor ve ikinci turdan itibaren her çağrı
+`CKR_CRYPTOKI_NOT_INITIALIZED` veriyordu. Tek turluk `selectCertificate`
+çalışıp çok turlu `sign` patladığı için fark edilmesi zordu. Host süreci tek
+istek işleyip çıktığından `C_Finalize`'ı hiç çağırmamak zararsız; oturumlar
+(logout + closeSession) kapatılmaya devam ediyor.
+
 Bu tür bir eksik **derleme sırasında görünmez**, ancak kullanıcı o özelliği
 çalıştırınca patlar. Bu yüzden derleme hattında iki zorunlu denetim var:
 
 - `patch/ApiCheck.java` — uygulamanın çağırdığı **her** `iaik.*` üyesini sabit
   havuzundan çıkarıp yeni wrapper'da var mı diye bakar (125 referans).
 - `patch/ShimTest.java` — shim'i yamalı jar'a karşı gerçekten çalıştırır
-  (statik denetim `<clinit>` hatasını yakalayamaz).
+  (statik denetim `<clinit>` hatasını yakalayamaz) ve `deinit → init`
+  döngüsünü 3 tur koşturarak yukarıdaki `C_Finalize` regresyonunu yakalar.
 
 Diğer yamalar:
 

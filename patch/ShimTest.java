@@ -70,9 +70,58 @@ public final class ShimTest {
         // 4) Uygulamanin imzalama yolunun gectigi sinif gercekten yuklenebiliyor mu.
         Class.forName("com.tnbt.imza.shell.pkcs11.Pkcs11Shell");
 
+        // 5) REGRESYON: deinit -> init dongusu.
+        //
+        // Uygulama her istekte once deinitShell() (modul basina C_Finalize)
+        // sonra initShell() cagiriyor. SunPKCS11 modulu yol basina
+        // onbellekledigi icin C_Finalize sonrasi yeniden baslatma SESSIZCE
+        // atlaniyordu ve ikinci turdan itibaren her sey
+        // CKR_CRYPTOKI_NOT_INITIALIZED veriyordu. Tek turluk selectCertificate
+        // calisiyor, cok turlu sign patliyordu — bu yuzden fark edilmesi zor.
+        // Module.finalize() islevsizlestirilerek cozuldu; burada dogruluyoruz.
+        //
+        // Surucu kurulu degilse (CI, kartsiz makine) sessizce atlanir; kart
+        // takili olmasi gerekmez, slot sayisi 0 olabilir.
+        failures += testDeinitInitCycles();
+
         if (failures > 0) {
             throw new IllegalStateException(failures + " shim dogrulamasi basarisiz");
         }
         System.out.println("  shim calisma zamani denetimi TEMIZ");
+    }
+
+    private static int testDeinitInitCycles() throws Exception {
+        Method list = Class.forName("com.tnbt.imza.applet.MacPkcs11Modules")
+                .getMethod("list");
+        String[] modules = (String[]) list.invoke(null);
+        if (modules.length == 0) {
+            System.out.println("  (PKCS#11 surucusu yok -> deinit/init dongu"
+                    + " testi atlandi)");
+            return 0;
+        }
+        String path = modules[0];
+
+        Class<?> moduleClass = Class.forName("iaik.pkcs.pkcs11.Module");
+        Method getInstance = moduleClass.getMethod("getInstance", String.class);
+        Method initialize = moduleClass.getMethod("initialize",
+                Class.forName("iaik.pkcs.pkcs11.InitializeArgs"));
+        Method getSlotList = moduleClass.getMethod("getSlotList", boolean.class);
+        Method finalizeModule = moduleClass.getMethod("finalize", Object.class);
+
+        for (int round = 1; round <= 3; round++) {
+            Object module = getInstance.invoke(null, path);
+            initialize.invoke(module, new Object[] { null });
+            try {
+                getSlotList.invoke(module, Boolean.TRUE);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                System.out.println("  ✗ tur " + round + ": getSlotList basarisiz ("
+                        + path + "): " + e.getCause());
+                System.out.println("    -> Module.finalize sonrasi yeniden"
+                        + " baslatma calismiyor (SunPKCS11 onbellegi)");
+                return 1;
+            }
+            finalizeModule.invoke(module, new Object[] { null });
+        }
+        return 0;
     }
 }

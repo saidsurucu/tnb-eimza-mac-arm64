@@ -2,47 +2,57 @@ package com.tnbt.imza.applet;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * macOS icin PKCS#11 modul listesi.
  *
- * Orijinal jar'in macOS listesi yalnizca {@code libeTPkcs11.dylib} ve
- * {@code libaetpkss.dylib} icerir; Turkiye'de yaygin olan AKIS (TUBITAK)
- * surucusu listede YOKTUR. Bu yuzden AKIS karti takili olsa bile sertifika
- * listesi bos gelir.
+ * Iki sorunu birden cozer:
  *
- * Burada her surucu icin once bilinen mutlak yollar denenir (dosya varsa o
- * kullanilir), hicbiri yoksa cikplak ad birakilir; cikplak adi dyld kendi
- * arama yollarindan cozer. Ayni surucunun iki farkli yolla iki kez
- * yuklenmesi (ve sertifikalarin cift gorunmesi) boylece onlenir.
+ * 1) Orijinal jar'in macOS listesi yalnizca {@code libeTPkcs11.dylib} ve
+ *    {@code libaetpkss.dylib} icerir; Turkiye'de yaygin olan AKIS (TUBITAK)
+ *    surucusu listede YOKTUR. Bu yuzden AKIS karti takili olsa bile sertifika
+ *    listesi bos gelir.
  *
- * {@code -Dtnb.pkcs11.modules=/yol/bir.dylib,/yol/iki.dylib} ile liste
- * tamamen degistirilebilir (sorun giderme icin).
+ * 2) Orijinal liste cikplak dosya adlari kullanir ({@code "libeTPkcs11.dylib"}).
+ *    Native IAIK wrapper bunlari dlopen'in arama yollarindan cozebiliyordu;
+ *    yerine kullandigimiz sunpkcs11-wrapper ise once dosyanin VARLIGINI
+ *    denetliyor ve bulunmayan her ad icin FileNotFoundException firlatiyor.
+ *    Bu hem ise yaramaz hem de her calismada log'u yigin izleriyle doldurur.
+ *
+ * Bu yuzden burada yalnizca DISKTE GERCEKTEN VAR OLAN mutlak yollar dondurulur;
+ * her surucu icin bilinen dizinler taranir ve ilk bulunan kullanilir (ayni
+ * surucunun iki yoldan yuklenip sertifikalarin cift gorunmesi de boylece
+ * onlenir).
+ *
+ * {@code -Dtnb.pkcs11.modules=/yol/bir.dylib,/yol/iki.dylib} ile liste tamamen
+ * degistirilebilir (sorun giderme icin; varlik denetimi uygulanmaz).
  */
 public final class MacPkcs11Modules {
 
-    /** Her satir bir surucu: once mutlak aday yollar, en sonda cikplak ad. */
-    private static final String[][] CANDIDATES = {
-        // AKIS - TUBITAK BILGEM (e-imza kartlarinin cogu)
-        { "/usr/local/lib/libakisp11.dylib",
-          "/Library/Java/Extensions/libakisp11.dylib",
-          "libakisp11.dylib" },
-        // SafeNet / Aladdin eToken
-        { "/usr/local/lib/libeTPkcs11.dylib",
-          "/Library/Frameworks/eToken.framework/Versions/A/libeToken.dylib",
-          "libeTPkcs11.dylib" },
-        // A.E.T. SafeSign
-        { "/usr/local/lib/libaetpkss.dylib",
-          "/Applications/tokenadmin.app/Contents/Frameworks/libaetpkss.dylib",
-          "libaetpkss.dylib" },
-        // Gemalto / Thales IDPrime
-        { "/usr/local/lib/libgtop11dotnet.dylib",
-          "/Library/Frameworks/eToken.framework/Versions/A/libIDPrimePKCS11.dylib" },
-        // OpenSC (genel amacli; AKIS disi kartlar icin)
-        { "/Library/OpenSC/lib/opensc-pkcs11.so",
-          "/usr/local/lib/opensc-pkcs11.so",
-          "/opt/homebrew/lib/opensc-pkcs11.so" },
+    /** PKCS#11 surucusunun bulunabilecegi dizinler (oncelik sirasiyla). */
+    private static final String[] SEARCH_DIRS = {
+        "/usr/local/lib",
+        "/Library/Java/Extensions",
+        System.getProperty("user.home") + "/Library/Java/Extensions",
+        "/Library/Frameworks/eToken.framework/Versions/A",
+        "/Applications/tokenadmin.app/Contents/Frameworks",
+        "/Library/OpenSC/lib",
+        "/opt/homebrew/lib",
+        "/usr/lib",
+    };
+
+    /** Bilinen surucu dosya adlari (denenme sirasiyla). */
+    private static final String[] DRIVERS = {
+        "libakisp11.dylib",        // AKIS - TUBITAK BILGEM (en yaygin)
+        "libeTPkcs11.dylib",       // SafeNet / Aladdin eToken
+        "libeToken.dylib",         // eToken framework
+        "libaetpkss.dylib",        // A.E.T. SafeSign
+        "libIDPrimePKCS11.dylib",  // Thales / Gemalto IDPrime
+        "libgtop11dotnet.dylib",   // Gemalto .NET
+        "opensc-pkcs11.so",        // OpenSC (genel amacli)
     };
 
     private MacPkcs11Modules() {
@@ -51,8 +61,8 @@ public final class MacPkcs11Modules {
     public static String[] list() {
         String override = System.getProperty("tnb.pkcs11.modules");
         if (override != null && override.trim().length() > 0) {
-            String[] parts = override.split(",");
             List<String> cleaned = new ArrayList<String>();
+            String[] parts = override.split(",");
             for (int i = 0; i < parts.length; i++) {
                 String p = parts[i].trim();
                 if (p.length() > 0) {
@@ -62,27 +72,16 @@ public final class MacPkcs11Modules {
             return cleaned.toArray(new String[cleaned.size()]);
         }
 
-        List<String> out = new ArrayList<String>();
-        for (int g = 0; g < CANDIDATES.length; g++) {
-            String[] group = CANDIDATES[g];
-            String bare = null;
-            boolean found = false;
-            for (int i = 0; i < group.length; i++) {
-                String path = group[i];
-                if (path.indexOf('/') < 0) {
-                    bare = path;
-                    continue;
+        Set<String> found = new LinkedHashSet<String>();
+        for (int d = 0; d < DRIVERS.length; d++) {
+            for (int s = 0; s < SEARCH_DIRS.length; s++) {
+                File candidate = new File(SEARCH_DIRS[s], DRIVERS[d]);
+                if (candidate.isFile()) {
+                    found.add(candidate.getAbsolutePath());
+                    break; // bu surucu icin ilk bulunan yeterli
                 }
-                if (new File(path).isFile()) {
-                    out.add(path);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found && bare != null) {
-                out.add(bare);
             }
         }
-        return out.toArray(new String[out.size()]);
+        return found.toArray(new String[found.size()]);
     }
 }

@@ -194,8 +194,33 @@ public final class Patch {
                 + " throws java.io.IOException {"
                 + "  return iaik.pkcs.pkcs11.Module.getInstance(modulePath);"
                 + "}", module));
+
+        // --- Module.finalize(Object) -> islevsiz. KRITIK.
+        //
+        // Uygulama her istekte doPrivilegedOperations() ile once deinitShell()
+        // sonra initShell() cagiriyor; deinitShell modul basina C_Finalize
+        // calistiriyor. SunPKCS11 ise PKCS11 ornegini modul YOLU basina
+        // onbellekliyor ve C_Initialize'i yalnizca ornegi ilk kez olustururken
+        // cagiriyor. C_Finalize'dan sonraki getInstance onbellekteki (artik
+        // sonlandirilmis) ornegi donduruyor, initialize() gercek bir
+        // C_Initialize yapmiyor ve sonraki her cagri CKR_CRYPTOKI_NOT_INITIALIZED
+        // veriyor.
+        //
+        // Sonuc: tek turluk selectCertificate calisiyor, cok turlu sign
+        // (sertifika ara -> deinit -> PIN -> login -> deinit -> imzala)
+        // ikinci turda oluyordu. Native IAIK wrapper'inda bu sorun yok cunku
+        // orada onbellek yok.
+        //
+        // Host sureci tek istek isleyip System.exit(0) ile kapandigi icin
+        // C_Finalize'i hic cagirmamak zararsiz; surucuyu isletim sistemi
+        // sureci sonlandirirken zaten temizliyor. Oturumlar (logout +
+        // closeSession) Pkcs11Shell.deinitialize icinde kapatilmaya devam ediyor.
+        module.getDeclaredMethod("finalize",
+                new CtClass[] { cp.get("java.lang.Object") }).setBody("{ }");
         module.writeFile(dir);
         say("shim: Module.getInstance(String,String) eklendi (olu dal)");
+        say("shim: Module.finalize() islevsizlestirildi"
+                + " (SunPKCS11 onbellegi yeniden baslatmaya izin vermiyor)");
 
         mech.detach();
         session.detach();

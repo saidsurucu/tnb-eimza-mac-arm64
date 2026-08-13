@@ -147,6 +147,10 @@ make uninstall  # kaydı ve uygulamayı kaldır
   Sonra `make run` ile hangi modüllerin denendiğine bakın.
 - **Kart okunmuyor:** Kart takılı ve okuyucu bağlı mı? `pkcs11-tool --module /usr/local/lib/libakisp11.dylib -L`
 - **Gatekeeper "açılamıyor":** Uygulamaya sağ tık → **Aç** (ad-hoc imzalı).
+- **`Permission denied` / `make[1]: *** [host] Error 1`:** Kurulum daha önce
+  `sudo` ile çalıştırılmış olabilir; tarayıcı kaydı klasörü root'a ait kalır.
+  `kur.sh` bunu artık kendisi onarır (gerekirse bir kez şifre sorar). Kurulumu
+  **`sudo` ile başlatmayın**; `./kur.sh` yeterlidir.
 - **"Veri imzalanırken bir hata oluştu. … java konsoluna bakınız":** Uygulamanın
   kastettiği "java konsolu" bu portta şu iki dosyadır:
   ```bash

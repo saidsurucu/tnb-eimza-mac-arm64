@@ -8,6 +8,19 @@ info(){ echo "${GRN}>>${RST} $*"; }
 warn(){ echo "${YEL}!!${RST} $*"; }
 die(){ echo "${RED}HATA:${RST} $*" >&2; exit 1; }
 
+# 0) "sudo ./kur.sh" ile başlatıldıysa normal kullanıcıya dön.
+# Root olarak yazılan dosyalar (depo, .jre-cache, tarayıcı kaydı) kullanıcının
+# ev dizininde root'a ait kalır ve sonraki kurulum "Permission denied" ile
+# patlar. Gerekli yerlerde yönetici iznini zaten adım adım istiyoruz.
+if [ "$(id -u)" = "0" ]; then
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && [ -f "${BASH_SOURCE[0]:-}" ]; then
+    SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    warn "Kurulum 'sudo' ile başlatıldı; normal kullanıcı ($SUDO_USER) olarak devam ediliyor."
+    exec sudo -u "$SUDO_USER" -H "$SELF" "$@"
+  fi
+  die "Bu kurulumu 'sudo' ile çalıştırmayın. Normal kullanıcı olarak: ./kur.sh"
+fi
+
 # 1) Mimari kontrolü
 [ "$(uname -s)" = "Darwin" ] || die "Yalnızca macOS."
 [ "$(uname -m)" = "arm64" ] || die "Yalnızca Apple Silicon (arm64)."
@@ -40,6 +53,13 @@ else
 fi
 cd "$REPO_ROOT"
 [ -f Makefile ] && [ -d app ] || die "Repo kökü bulunamadı: $REPO_ROOT"
+
+# 3b) Daha önce sudo ile çalıştırıldıysa depo/önbellek root'a aittir; onar.
+if [ ! -w "$REPO_ROOT" ] || { [ -e "$REPO_ROOT/.jre-cache" ] && [ ! -w "$REPO_ROOT/.jre-cache" ]; } \
+   || { [ -e "$REPO_ROOT/build" ] && [ ! -w "$REPO_ROOT/build" ]; }; then
+  warn "Depo klasörü daha önce yönetici olarak oluşturulmuş; izinler onarılıyor (şifre isteyebilir)..."
+  sudo chown -R "$(id -un)":staff "$REPO_ROOT" || die "İzinler onarılamadı: $REPO_ROOT"
+fi
 
 # 4) Build + kur + tarayıcı kaydı
 if [ ! -f assets/TNBTeknolojiImza.icns ]; then

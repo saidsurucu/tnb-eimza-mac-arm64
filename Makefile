@@ -69,9 +69,18 @@ dmg: app
 run: app
 	@./scripts/smoke-test.sh "$(BUILD)/$(APPNAME).app"
 
+# Not: eski sürüm daha önce "sudo" ile kurulmuşsa root'a aittir ve normal
+# kullanıcı silemez; bu durumda yönetici izni isteyip devam ediyoruz.
 install: app
-	@rm -rf "/Applications/$(APPNAME).app"
-	@cp -R $(BUILD)/$(APPNAME).app /Applications/
+	@if [ -e "/Applications/$(APPNAME).app" ] && ! rm -rf "/Applications/$(APPNAME).app" 2>/dev/null; then \
+	   echo ">> eski sürüm yönetici izniyle kaldırılıyor (şifre isteyebilir)..."; \
+	   sudo rm -rf "/Applications/$(APPNAME).app"; \
+	 fi
+	@if ! cp -R $(BUILD)/$(APPNAME).app /Applications/ 2>/dev/null; then \
+	   echo ">> /Applications'a yönetici izniyle kopyalanıyor (şifre isteyebilir)..."; \
+	   sudo cp -R $(BUILD)/$(APPNAME).app /Applications/; \
+	   sudo chown -R "$$(id -un)":admin "/Applications/$(APPNAME).app"; \
+	 fi
 	@xattr -dr com.apple.quarantine "/Applications/$(APPNAME).app" 2>/dev/null || true
 	@echo ">> kuruldu: /Applications/$(APPNAME).app"
 	@$(MAKE) --no-print-directory host
@@ -82,7 +91,10 @@ host:
 
 uninstall:
 	@./scripts/install-host.sh --uninstall
-	@rm -rf "/Applications/$(APPNAME).app"
+	@if [ -e "/Applications/$(APPNAME).app" ] && ! rm -rf "/Applications/$(APPNAME).app" 2>/dev/null; then \
+	   echo ">> yönetici izniyle kaldırılıyor (şifre isteyebilir)..."; \
+	   sudo rm -rf "/Applications/$(APPNAME).app"; \
+	 fi
 	@echo ">> kaldırıldı."
 
 clean:

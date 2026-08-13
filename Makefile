@@ -5,6 +5,20 @@ BUILD := $(ROOT)/build
 APPNAME := TNBTeknolojiImza
 DISPLAYNAME := TNB Teknoloji İmza
 
+# Rosetta (x86_64) kabuğunda derlenirse arm64 runtime/paket üretilemez; kur.sh
+# bunu kendisi düzeltir, doğrudan `make` çağıranları burada uyarıyoruz.
+ARCH := $(shell uname -m)
+GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),app)
+ifneq ($(ARCH),arm64)
+ifneq ($(filter jre prep app dmg run install,$(GOALS)),)
+ifeq ($(shell sysctl -n hw.optional.arm64 2>/dev/null),1)
+$(error Terminal Rosetta (x86_64) modunda. Şunu kullanın:  arch -arm64 make $(MAKECMDGOALS))
+else
+$(error Bu port yalnızca Apple Silicon içindir (mevcut mimari: $(ARCH)))
+endif
+endif
+endif
+
 ZULU11_URL := https://cdn.azul.com/zulu/bin/zulu11.88.17-ca-jdk11.0.31-macosx_aarch64.tar.gz
 ZULU21_URL := https://cdn.azul.com/zulu/bin/zulu21.50.19-ca-jdk21.0.11-macosx_aarch64.tar.gz
 

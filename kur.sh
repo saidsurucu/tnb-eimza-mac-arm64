@@ -23,9 +23,25 @@ fi
 
 # 1) Mimari kontrolü
 [ "$(uname -s)" = "Darwin" ] || die "Yalnızca macOS."
-[ "$(uname -m)" = "arm64" ] || die "Yalnızca Apple Silicon (arm64)."
 
-info "Bu kurucu resmi değildir; TNB Teknoloji İmza'nın topluluk portudur."
+# Donanım Apple Silicon olsa bile Terminal x86_64 (Rosetta) modunda açılmış
+# olabilir — Bilgi penceresinde "Rosetta kullanarak aç" işaretliyse veya kabuk
+# Intel Homebrew'dan geliyorsa `uname -m` x86_64 döner. Bu modda arm64 runtime
+# ve kart sürücüsü yüklenemez. Donanım gerçekten arm64 ise kendimizi arm64
+# olarak yeniden başlatıyoruz (depo hazırlandıktan sonra, 3c adımında).
+ARCH_SWITCH=0
+if [ "$(uname -m)" != "arm64" ]; then
+  if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = "1" ] \
+     && [ "${TNB_ARCH_SWITCHED:-0}" != "1" ] && command -v arch >/dev/null 2>&1; then
+    warn "Terminal Rosetta (x86_64) modunda çalışıyor; otomatik olarak arm64'e geçilecek."
+    ARCH_SWITCH=1
+  else
+    die "Bu port yalnızca Apple Silicon (arm64) içindir. Mevcut mimari: $(uname -m)"
+  fi
+fi
+
+# (arm64'e geçilecekse banner'ı ikinci geçişte gösteriyoruz)
+[ "$ARCH_SWITCH" = "1" ] || info "Bu kurucu resmi değildir; TNB Teknoloji İmza'nın topluluk portudur."
 
 # 2) Xcode CLT (make, git, curl için)
 if ! xcode-select -p >/dev/null 2>&1; then
@@ -59,6 +75,15 @@ if [ ! -w "$REPO_ROOT" ] || { [ -e "$REPO_ROOT/.jre-cache" ] && [ ! -w "$REPO_RO
    || { [ -e "$REPO_ROOT/build" ] && [ ! -w "$REPO_ROOT/build" ]; }; then
   warn "Depo klasörü daha önce yönetici olarak oluşturulmuş; izinler onarılıyor (şifre isteyebilir)..."
   sudo chown -R "$(id -un)":staff "$REPO_ROOT" || die "İzinler onarılamadı: $REPO_ROOT"
+fi
+
+# 3c) Rosetta altındaysak depo artık diskte; kendimizi arm64 olarak başlatıyoruz.
+# (Erken yapamıyoruz: "curl | bash" ile çalıştırıldığında yeniden başlatılacak
+#  bir dosya henüz yok.)
+if [ "$ARCH_SWITCH" = "1" ]; then
+  info "arm64 mimarisine geçiliyor..."
+  export TNB_ARCH_SWITCHED=1
+  exec arch -arm64 /bin/bash "$REPO_ROOT/kur.sh" "$@"
 fi
 
 # 4) Build + kur + tarayıcı kaydı

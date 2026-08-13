@@ -147,6 +147,12 @@ make uninstall  # kaydı ve uygulamayı kaldır
   Sonra `make run` ile hangi modüllerin denendiğine bakın.
 - **Kart okunmuyor:** Kart takılı ve okuyucu bağlı mı? `pkcs11-tool --module /usr/local/lib/libakisp11.dylib -L`
 - **Gatekeeper "açılamıyor":** Uygulamaya sağ tık → **Aç** (ad-hoc imzalı).
+- **"Yalnızca Apple Silicon (arm64)" diyor ama Mac'im M-serisi:** Terminal
+  Rosetta (x86_64) modunda açılmıştır (`uname -m` → `x86_64`). `kur.sh` bunu
+  artık kendisi algılayıp arm64'e geçiyor; doğrudan `make` çalıştırıyorsanız
+  başına `arch -arm64` ekleyin. Kalıcı çözüm: Finder → Uygulamalar → Yardımcı
+  Programlar → Terminal → **Bilgi Al** → "Rosetta kullanarak aç" işaretini
+  kaldırın.
 - **`Permission denied` / `make[1]: *** [host] Error 1`:** Kurulum daha önce
   `sudo` ile çalıştırılmış olabilir; tarayıcı kaydı klasörü root'a ait kalır.
   `kur.sh` bunu artık kendisi onarır (gerekirse bir kez şifre sorar). Kurulumu

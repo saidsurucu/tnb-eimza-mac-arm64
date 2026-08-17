@@ -18,7 +18,8 @@ JAVASSIST_URL="https://repo1.maven.org/maven2/org/javassist/javassist/$JAVASSIST
 
 JDK="${JDK:-}"
 if [ -z "$JDK" ]; then
-  JDK="$(/usr/libexec/java_home -v 11 -a arm64 2>/dev/null || /usr/libexec/java_home 2>/dev/null || true)"
+  # Kabugun mimarisi hedef mimaridir (arm64 | x86_64); java_home ayni adlari kullanir.
+  JDK="$(/usr/libexec/java_home -v 11 -a "$(uname -m)" 2>/dev/null || /usr/libexec/java_home 2>/dev/null || true)"
 fi
 [ -x "$JDK/bin/javac" ] || { echo "HATA: javac bulunamadi (JDK=$JDK). Once 'make jre'." >&2; exit 1; }
 
@@ -50,7 +51,10 @@ EM="iaik/pkcs/pkcs11/wrapper/ExceptionMessages.properties"
 test -f "$WORK/classes/$EM" || { echo "HATA: $EM satici jar'inda yok" >&2; exit 1; }
 cp "$WORK/classes/$EM" "$WORK/ExceptionMessages.properties"
 
-echo ">> native IAIK katmani cikariliyor (arm64 dilimi olmayan .jnilib dahil)"
+# NOT: Bu adim mimariden bagimsizdir. .jnilib'in x86_64 dilimi VAR, yani Intel
+# Mac'te teorik olarak yuklenebilirdi; yine de her iki mimaride de saf-Java
+# sunpkcs11-wrapper'a geciyoruz — tek kod yolu, ayni davranis, ayni testler.
+echo ">> native IAIK katmani cikariliyor (eski .jnilib dahil)"
 rm -rf "$WORK/classes/iaik"
 rm -f  "$WORK"/classes/*.dll "$WORK"/classes/*.so "$WORK"/classes/*.jnilib
 

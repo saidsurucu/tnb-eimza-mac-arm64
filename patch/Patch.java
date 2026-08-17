@@ -13,7 +13,7 @@ import javassist.expr.ExprEditor;
 import javassist.expr.NewExpr;
 
 /**
- * TNBTeknolojiImza.jar'i macOS / Apple Silicon (arm64) icin yamalar.
+ * TNBTeknolojiImza.jar'i macOS icin yamalar (arm64 ve x86_64; tek yama seti).
  *
  * NEDEN:
  *   Orijinal jar kart erisimini IAIK PKCS#11 Wrapper'in native parcasi uzerinden
@@ -25,8 +25,15 @@ import javassist.expr.NewExpr;
  * NASIL:
  *   IAIK'in native katmani yerine ayni iaik.pkcs.pkcs11 API'sini SunPKCS11
  *   (JDK'nin jdk.crypto.cryptoki modulu) uzerine oturtan
- *   org.xipki.iaik:sunpkcs11-wrapper kullanilir. Saf Java oldugu icin arm64'te
- *   native derleme veya Rosetta gerekmez.
+ *   org.xipki.iaik:sunpkcs11-wrapper kullanilir. Saf Java oldugu icin hicbir
+ *   mimaride native derleme veya Rosetta gerekmez.
+ *
+ * MIMARI:
+ *   Bu yamalar mimariden bagimsizdir. Intel Mac'te .jnilib'in x86_64 dilimi
+ *   teorik olarak yuklenebilirdi, ama orada da ayni saf-Java yolu kullaniyoruz:
+ *   tek kod yolu, ayni davranis, ayni ApiCheck/ShimTest denetimleri. Mimariye
+ *   bagli tek sey paketleme (runtime + jpackage) ve kartin PKCS#11 surucusudur;
+ *   surucu uygulamayla ayni mimaride olmalidir.
  *
  * Yamalar (hedef bulunamazsa build BILEREK patlar; saticinin jar'i degisirse
  * sessizce bozuk paket uretmeyelim):

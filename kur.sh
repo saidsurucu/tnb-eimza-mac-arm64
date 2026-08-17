@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# TNB Teknoloji Elektronik İmza — macOS (Apple Silicon) tek-komut kurulum.
+# TNB Teknoloji Elektronik İmza — macOS tek-komut kurulum.
+# Apple Silicon (arm64) ve Intel (x86_64) Mac'ler; hedef macOS 13+.
 # Resmi değildir; topluluk portudur.
 set -euo pipefail
 
@@ -21,27 +22,53 @@ if [ "$(id -u)" = "0" ]; then
   die "Bu kurulumu 'sudo' ile çalıştırmayın. Normal kullanıcı olarak: ./kur.sh"
 fi
 
-# 1) Mimari kontrolü
+# 1) Mimari ve macOS sürümü kontrolü
 [ "$(uname -s)" = "Darwin" ] || die "Yalnızca macOS."
 
-# Donanım Apple Silicon olsa bile Terminal x86_64 (Rosetta) modunda açılmış
-# olabilir — Bilgi penceresinde "Rosetta kullanarak aç" işaretliyse veya kabuk
-# Intel Homebrew'dan geliyorsa `uname -m` x86_64 döner. Bu modda arm64 runtime
-# ve kart sürücüsü yüklenemez. Donanım gerçekten arm64 ise kendimizi arm64
+# Apple Silicon donanımda Terminal x86_64 (Rosetta) modunda açılmış olabilir —
+# Bilgi penceresinde "Rosetta kullanarak aç" işaretliyse veya kabuk Intel
+# Homebrew'dan geliyorsa `uname -m` x86_64 döner. Bu modda arm64 runtime ve
+# arm64 kart sürücüsü yüklenemez; donanım gerçekten arm64 ise kendimizi arm64
 # olarak yeniden başlatıyoruz (depo hazırlandıktan sonra, 3c adımında).
+# Gerçek Intel Mac'te ise x86_64 doğru hedeftir, dokunmuyoruz.
 ARCH_SWITCH=0
-if [ "$(uname -m)" != "arm64" ]; then
-  if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = "1" ] \
-     && [ "${TNB_ARCH_SWITCHED:-0}" != "1" ] && command -v arch >/dev/null 2>&1; then
-    warn "Terminal Rosetta (x86_64) modunda çalışıyor; otomatik olarak arm64'e geçilecek."
-    ARCH_SWITCH=1
-  else
-    die "Bu port yalnızca Apple Silicon (arm64) içindir. Mevcut mimari: $(uname -m)"
-  fi
+IS_ARM_HW="$(sysctl -n hw.optional.arm64 2>/dev/null || true)"
+case "$(uname -m)" in
+  arm64)
+    BUILD_ARCH="arm64"
+    ;;
+  x86_64)
+    if [ "$IS_ARM_HW" = "1" ]; then
+      if [ "${TNB_ARCH_SWITCHED:-0}" != "1" ] && command -v arch >/dev/null 2>&1; then
+        warn "Terminal Rosetta (x86_64) modunda çalışıyor; otomatik olarak arm64'e geçilecek."
+        ARCH_SWITCH=1
+        BUILD_ARCH="arm64"
+      else
+        die "Donanım Apple Silicon ama kabuk Rosetta modunda. Şunu deneyin: arch -arm64 ./kur.sh"
+      fi
+    else
+      BUILD_ARCH="x86_64"
+    fi
+    ;;
+  *)
+    die "Desteklenmeyen mimari: $(uname -m) (yalnızca arm64 ve x86_64)"
+    ;;
+esac
+
+# macOS 13 (Ventura) ve üstü hedefleniyor. Daha eskisinde jpackage'ın indirdiği
+# Zulu 21 çalışmayabilir; engellemiyoruz ama uyarıyoruz.
+OSVER="$(sw_vers -productVersion 2>/dev/null || echo 0)"
+OSMAJ="${OSVER%%.*}"
+if [ "${OSMAJ:-0}" -lt 13 ] 2>/dev/null; then
+  warn "macOS $OSVER algılandı; bu port macOS 13 (Ventura) ve üstü için hazırlandı."
+  warn "Kurulum denenecek ancak derleme araçları eski sürümlerde çalışmayabilir."
 fi
 
 # (arm64'e geçilecekse banner'ı ikinci geçişte gösteriyoruz)
-[ "$ARCH_SWITCH" = "1" ] || info "Bu kurucu resmi değildir; TNB Teknoloji İmza'nın topluluk portudur."
+if [ "$ARCH_SWITCH" != "1" ]; then
+  info "Bu kurucu resmi değildir; TNB Teknoloji İmza'nın topluluk portudur."
+  info "Hedef: macOS $OSVER / $BUILD_ARCH"
+fi
 
 # 2) Xcode CLT (make, git, curl için)
 if ! xcode-select -p >/dev/null 2>&1; then
@@ -94,30 +121,37 @@ info "Runtime ve build aracı hazırlanıyor..."; make jre
 info "Uygulama derleniyor..."; make app
 info "/Applications'a kuruluyor ve tarayıcıya kaydediliyor..."; make install
 
-# 5) PKCS#11 sürücüsü arm64 mi?
-# Uygulama sürücüyü KENDİ arm64 sürecine yükler; Intel-only bir dylib yüklenemez
-# ("incompatible architecture") ve sertifika listesi boş kalır.
-found_arm64=0; found_any=0
+# 5) PKCS#11 sürücüsü uygulamayla aynı mimaride mi?
+# Uygulama sürücüyü KENDİ sürecine yükler: arm64 uygulamaya Intel-only bir
+# dylib, Intel uygulamaya arm64-only bir dylib yüklenemez ("incompatible
+# architecture") ve sertifika listesi boş kalır.
+if [ "$BUILD_ARCH" = "arm64" ]; then
+  DRIVER_PKG="Mac OS Arm (Apple Silicon)"
+else
+  DRIVER_PKG="Mac OS (Intel)"
+fi
+
+found_match=0; found_any=0
 for drv in /usr/local/lib/libakisp11.dylib \
            /usr/local/lib/libeTPkcs11.dylib \
            /usr/local/lib/libaetpkss.dylib; do
   [ -f "$drv" ] || continue
   found_any=1
   archs="$(lipo -archs "$drv" 2>/dev/null || echo '?')"
-  if echo "$archs" | grep -qw arm64; then
-    info "sürücü hazır (arm64): $drv  [$archs]"; found_arm64=1
+  if echo "$archs" | tr ' ' '\n' | grep -qx "$BUILD_ARCH"; then
+    info "sürücü hazır ($BUILD_ARCH): $drv  [$archs]"; found_match=1
   else
-    warn "sürücü arm64 DEĞİL: $drv  [$archs]"
+    warn "sürücüde $BUILD_ARCH dilimi YOK: $drv  [$archs]"
   fi
 done
 
 if [ "$found_any" = "0" ]; then
   warn "Hiçbir PKCS#11 kart sürücüsü bulunamadı."
-  warn "AKİS kartı için TÜBİTAK BİLGEM'den 'Mac OS Arm (Apple Silicon)' paketini kurun:"
+  warn "AKİS kartı için TÜBİTAK BİLGEM'den '$DRIVER_PKG' paketini kurun:"
   warn "  https://akiskart.bilgem.tubitak.gov.tr/tr/destek/"
-elif [ "$found_arm64" = "0" ]; then
-  warn "Kurulu sürücülerin hiçbirinde arm64 dilimi yok — kart okunamaz."
-  warn "Sürücünün Apple Silicon sürümünü kurup kur.sh'i tekrar çalıştırın."
+elif [ "$found_match" = "0" ]; then
+  warn "Kurulu sürücülerin hiçbirinde $BUILD_ARCH dilimi yok — kart okunamaz."
+  warn "Sürücünün '$DRIVER_PKG' sürümünü kurup kur.sh'i tekrar çalıştırın."
 fi
 
 echo

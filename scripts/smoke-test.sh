@@ -4,7 +4,8 @@
 #
 # Ne dogrular:
 #   - jpackage launcher'i stdin/stdout'u dogru aktariyor mu
-#   - PKCS#11 modulleri (AKIS dahil) arm64'te yukleniyor mu
+#   - PKCS#11 modulleri (AKIS dahil) uygulamanin mimarisinde yukleniyor mu
+#     (surucu ile uygulama farkli mimarideyse "incompatible architecture")
 #   - IAIK native katmani kalintisi (UnsatisfiedLinkError) kalmis mi
 #
 # Kart takiliysa sertifika secim penceresi acilir; degilse "sertifika yok" der.
@@ -16,6 +17,10 @@ WAIT="${WAIT:-20}"
 LOGDIR="$HOME/Library/Logs/TNBTeknolojiImza"
 
 [ -x "$EXEC" ] || { echo "HATA: uygulama yok: $EXEC" >&2; exit 1; }
+
+APP_ARCH="$(lipo -archs "$EXEC" 2>/dev/null | awk '{print $1}')"
+[ -n "$APP_ARCH" ] || APP_ARCH="$(uname -m)"
+echo ">> uygulama mimarisi: $APP_ARCH"
 
 MSG="$(mktemp)"; trap 'rm -f "$MSG"' EXIT
 /usr/bin/python3 - "$MSG" <<'PY'
@@ -60,6 +65,17 @@ if ! grep -q 'MODULE PATH BU' "$LOGDIR/TnbTeknolojiImza.log" 2>/dev/null; then
 else
   echo "✓ PKCS#11 modulleri denendi:"
   grep 'MODULE PATH BU' "$LOGDIR/TnbTeknolojiImza.log" | sed 's/^/    /'
+fi
+# Surucu ile uygulama farkli mimarideyse dyld "incompatible architecture" der;
+# kullaniciya hangi surucunun hangi mimaride oldugunu da gosterelim.
+if printf '%s' "$ERR" | grep -qi 'incompatible architecture'; then
+  echo "✗ kart surucusu uygulamayla ayni mimaride degil (uygulama: $APP_ARCH)"
+  for drv in /usr/local/lib/libakisp11.dylib /usr/local/lib/libeTPkcs11.dylib \
+             /usr/local/lib/libaetpkss.dylib; do
+    [ -f "$drv" ] && echo "    $drv  [$(lipo -archs "$drv" 2>/dev/null || echo '?')]"
+  done
+  echo "    Surucunun $APP_ARCH surumunu kurun: https://akiskart.bilgem.tubitak.gov.tr/tr/destek/"
+  fail=1
 fi
 if printf '%s' "$ERR" | grep -q 'UnsatisfiedLinkError'; then
   echo "✗ native kutuphane hatasi surüyor (yama uygulanmamis)"; fail=1

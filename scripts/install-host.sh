@@ -104,11 +104,15 @@ fi
 
 [ -x "$EXEC" ] || { echo "HATA: uygulama bulunamadı: $EXEC" >&2; exit 1; }
 
+# Kurulu uygulamanin gercek mimarisi (arm64 | x86_64) — yalnizca aciklama metni.
+APP_ARCH="$(lipo -archs "$EXEC" 2>/dev/null | awk '{print $1}')"
+[ -n "$APP_ARCH" ] || APP_ARCH="$(uname -m)"
+
 manifest_json() {
   cat <<EOF
 {
   "name": "$HOST_NAME",
-  "description": "TnbTeknoloji Imza Chrome Native Messaging Host (macOS arm64)",
+  "description": "TnbTeknoloji Imza Chrome Native Messaging Host (macOS $APP_ARCH)",
   "path": "$EXEC",
   "type": "stdio",
   "allowed_origins": [

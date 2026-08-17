@@ -1,14 +1,27 @@
-# TNB Teknoloji Elektronik İmza — macOS (Apple Silicon) Portu
+# TNB Teknoloji Elektronik İmza — macOS Portu (Apple Silicon + Intel)
 
 TNB KEP (`kep.hs02.kep.tr`) girişinde kullanılan **TNB Teknoloji Elektronik İmza**
-uygulamasının Apple Silicon Mac'ler için **resmi olmayan, topluluk** portu.
+uygulamasının Mac'ler için **resmi olmayan, topluluk** portu.
 Üretici yalnızca Windows kurulumu (`TNBTeknolojiImza.exe`) dağıtıyor; bu depo
-aynı Java uygulamasını gömülü **arm64 Java 11** runtime ile native bir `.app`
-olarak paketler ve Chrome'a *native messaging host* olarak kaydeder.
-Rosetta veya ayrı Java kurulumu gerekmez.
+aynı Java uygulamasını gömülü **Java 11** runtime ile native bir `.app` olarak
+paketler ve Chrome'a *native messaging host* olarak kaydeder. Rosetta veya ayrı
+Java kurulumu gerekmez.
+
+Desteklenen makineler:
+
+| Mac | Uygulama mimarisi | macOS |
+|---|---|---|
+| Apple Silicon (M1/M2/M3/M4) | `arm64` | 11+ (13+ önerilir) |
+| Intel | `x86_64` | **13 (Ventura)** ve üstü |
+
+Paket, **derlendiği makinenin mimarisinde** üretilir: Intel bir Mac'te
+çalıştırılan kurulum Intel (`x86_64`) bir `.app`, Apple Silicon'da arm64 bir
+`.app` üretir. Rosetta gerekmez; her iki mimaride de uygulama native çalışır.
 
 Apple Silicon bir Mac'te, gerçek AKİS kartı ve PIN ile **`kep.hs02.kep.tr`
-girişi uçtan uca çalıştığı doğrulanmıştır.**
+girişi uçtan uca çalıştığı doğrulanmıştır.** Intel yolu aynı kod yolunu
+kullanır (yamalar saf Java'dır, mimariden bağımsızdır) ancak gerçek Intel
+donanımda uçtan uca **test edilmemiştir** — bkz. "Bilinen sınırlar".
 
 ## Kurulum (tek komut)
 
@@ -17,9 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/saidsurucu/tnb-eimza-mac-arm64/main
 ```
 
 Betik sırayla: Xcode Command Line Tools'u (gerekirse) kurar, depoyu
-`~/tnb-eimza-mac-arm64` altına klonlar, arm64 Java 11 runtime'ını indirir,
-`TNBTeknolojiImza.app`'i derleyip imzalar, `/Applications`'a kurar ve kurulu tüm
-Chromium tabanlı tarayıcılara kaydeder. İnternet gerekir.
+`~/tnb-eimza-mac-arm64` altına klonlar, makinenin mimarisine uygun Java 11
+runtime'ını indirir, `TNBTeknolojiImza.app`'i derleyip imzalar, `/Applications`'a
+kurar ve kurulu tüm Chromium tabanlı tarayıcılara kaydeder. İnternet gerekir.
 
 Ardından:
 
@@ -35,20 +48,31 @@ tarayıcı, eklenti imzalama isteyince uygulamayı kendisi başlatır ve stdin/s
 üzerinden JSON konuşur. `/Applications` içindeki uygulamaya çift tıklamak
 beklenen bir şey yapmaz; akışı **tarayıcıdan** başlatın.
 
-## Zorunlu: arm64 kart sürücüsü (PKCS#11)
+## Zorunlu: uygulamayla aynı mimaride kart sürücüsü (PKCS#11)
 
 Uygulama kartı `libakisp11.dylib` gibi bir PKCS#11 sürücüsü üzerinden okur ve
-**arm64** kod olarak çalışır; Intel-only bir sürücü arm64 sürece yüklenemez.
-AKİS kartları için TÜBİTAK BİLGEM'den **"Mac OS Arm (Apple Silicon)"** paketini
-kurun:
+sürücüyü **kendi sürecine** yükler. macOS farklı mimarideki bir kütüphaneyi
+sürece yükleyemez ("incompatible architecture"): arm64 uygulamaya Intel-only,
+Intel uygulamaya arm64-only bir sürücü yüklenmez ve sertifika listesi boş kalır.
+Bu yüzden sürücünün mimarisi Mac'inize uymalıdır.
+
+AKİS kartları için TÜBİTAK BİLGEM'den doğru paketi kurun:
+
+| Mac | TÜBİTAK paketi |
+|---|---|
+| Apple Silicon | **"Mac OS Arm (Apple Silicon)"** |
+| Intel | **"Mac OS"** (Intel sürümü) |
 
 - https://akiskart.bilgem.tubitak.gov.tr/tr/destek/
 
-Doğrulama (`arm64` içermeli):
+Doğrulama — çıktı Mac'inizin mimarisini (`arm64` ya da `x86_64`) içermeli:
 
 ```bash
-lipo -archs /usr/local/lib/libakisp11.dylib
+uname -m                                       # Mac'inizin mimarisi
+lipo -archs /usr/local/lib/libakisp11.dylib    # sürücünün mimarisi
 ```
+
+`kur.sh` bu denetimi kurulum sonunda kendisi de yapar ve uyumsuzluğu bildirir.
 
 Bilinen sürücü adları bilinen dizinlerde taranır ve **yalnızca diskte gerçekten
 var olan** yollar denenir; liste ve arama dizinleri için bkz.
@@ -67,7 +91,11 @@ yalnızca NSIS kurucusu. macOS'ta iki şey bozuk:
    → **Çözüm:** IAIK'in native katmanı yerine aynı `iaik.pkcs.pkcs11` API'sini
    **SunPKCS11** (`jdk.crypto.cryptoki`) üzerine oturtan
    [`org.xipki.iaik:sunpkcs11-wrapper`](https://github.com/xipki/pkcs11wrapper/tree/sunpkcs11)
-   kullanılıyor — saf Java, arm64 native, Rosetta yok.
+   kullanılıyor — saf Java, her iki mimaride native, Rosetta yok.
+   Not: bu `.jnilib`'in `x86_64` dilimi var, yani Intel Mac'te teorik olarak
+   yüklenebilirdi; yine de **her iki mimaride de** saf-Java wrapper'a geçiyoruz
+   — tek kod yolu, aynı davranış, aynı denetimler (ayrıca eski `.jnilib` 32-bit
+   dönemden kalma ve JDK 11'de test edilmemiş).
 
 2. **macOS modül listesinde AKİS yok.** Orijinal kod macOS'ta yalnızca
    `libeTPkcs11.dylib` ve `libaetpkss.dylib` deniyor; Türkiye'de yaygın olan AKİS
@@ -113,12 +141,26 @@ Diğer yamalar:
   `"Chrome"` bekler → argüman zorlanıyor
 - Loglar ev dizininin köküne değil `~/Library/Logs/TNBTeknolojiImza/` altına
 
-Paketleme: `jpackage` + Zulu 11 arm64 (`--runtime-image`), ASCII executable adı,
-ad-hoc `codesign`.
+Paketleme: `jpackage` + Zulu 11 (`--runtime-image`), ASCII executable adı,
+ad-hoc `codesign`. Runtime, kabuğun mimarisine göre `aarch64` veya `x64` olarak
+indirilir ve `.jre-cache/zulu11-runtime-<mimari>` altında ayrı ayrı önbelleklenir.
+
+Mimari seçimi derleme hattında üç yerde denetlenir — sessiz bir uyumsuzluk
+kullanıcıya "sertifika listesi boş" olarak yansıyacağı için:
+
+- `Makefile` — indirilen runtime gerçekten hedef mimaride mi (`lipo -archs`).
+- `scripts/find-jpackage.sh` — sistemde bulunan `jpackage` yalnızca hedefle
+  **aynı mimarideyse** kullanılır. `.app`'in launcher ikilisi (`jpackageapplauncher`)
+  jpackage'in kendi JDK'sinden kopyalanır; Intel bir jpackage arm64 paket (veya
+  tersi) üretemez. Uygun değilse doğru mimaride Zulu 21 indirilir.
+- `scripts/build-app.sh` — üretilen `.app`'in launcher'ı beklenen mimaride mi,
+  `Info.plist`'e `LSMinimumSystemVersion` (Intel: `13.0`, arm64: `11.0`) yazılır.
 
 **Durum: çalışıyor.** Gerçek AKİS kartı ve PIN ile, Chrome üzerinden
 `kep.hs02.kep.tr` girişi Apple Silicon bir Mac'te uçtan uca doğrulandı —
-sertifika seçimi, PIN girişi ve imzalama dahil.
+sertifika seçimi, PIN girişi ve imzalama dahil. Intel yolu aynı yamaları ve
+aynı denetimleri kullanır; farkı yalnızca indirilen runtime/jpackage
+mimarisidir.
 
 Kart takılıyken `make run` ile tarayıcısız hızlı bir kontrol de
 yapabilirsiniz: uygulamaya Chrome'un çerçeve biçiminde (4 bayt little-endian
@@ -143,16 +185,22 @@ make uninstall  # kaydı ve uygulamayı kaldır
 - **Eklenti "uygulama kurulu değil" diyor:** `make host` çalıştırıp Chrome'u
   tamamen kapatıp açın. Kayıt dosyası:
   `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/tnbtimzahost.json`
-- **Sertifika listesi boş:** Sürücü arm64 mi? `lipo -archs /usr/local/lib/libakisp11.dylib`.
-  Sonra `make run` ile hangi modüllerin denendiğine bakın.
+- **Sertifika listesi boş:** Sürücü ile uygulama aynı mimaride mi?
+  `uname -m` ile `lipo -archs /usr/local/lib/libakisp11.dylib` çıktısı
+  uyuşmalı. Sonra `make run` ile hangi modüllerin denendiğine bakın; farklı
+  mimari varsa duman testi "incompatible architecture" diyerek sürücülerin
+  mimarilerini listeler.
 - **Kart okunmuyor:** Kart takılı ve okuyucu bağlı mı? `pkcs11-tool --module /usr/local/lib/libakisp11.dylib -L`
 - **Gatekeeper "açılamıyor":** Uygulamaya sağ tık → **Aç** (ad-hoc imzalı).
-- **"Yalnızca Apple Silicon (arm64)" diyor ama Mac'im M-serisi:** Terminal
-  Rosetta (x86_64) modunda açılmıştır (`uname -m` → `x86_64`). `kur.sh` bunu
-  artık kendisi algılayıp arm64'e geçiyor; doğrudan `make` çalıştırıyorsanız
-  başına `arch -arm64` ekleyin. Kalıcı çözüm: Finder → Uygulamalar → Yardımcı
-  Programlar → Terminal → **Bilgi Al** → "Rosetta kullanarak aç" işaretini
-  kaldırın.
+- **Intel Mac'te "macOS 13 için hazırlandı" uyarısı:** macOS 12 ve altında
+  kurulum yine denenir, ancak derleme için indirilen Zulu 21 (jpackage) eski
+  macOS sürümlerinde çalışmayabilir. Desteklenen hedef macOS 13+.
+- **"Donanım Apple Silicon ama kabuk Rosetta modunda" diyor:** Terminal x86_64
+  modunda açılmıştır (`uname -m` → `x86_64`). `kur.sh` bunu kendisi algılayıp
+  arm64'e geçer; doğrudan `make` çalıştırıyorsanız başına `arch -arm64` ekleyin.
+  Kalıcı çözüm: Finder → Uygulamalar → Yardımcı Programlar → Terminal →
+  **Bilgi Al** → "Rosetta kullanarak aç" işaretini kaldırın. (Gerçek Intel
+  Mac'lerde bu uyarı çıkmaz; orada x86_64 zaten doğru hedeftir.)
 - **`Permission denied` / `make[1]: *** [host] Error 1`:** Kurulum daha önce
   `sudo` ile çalıştırılmış olabilir; tarayıcı kaydı klasörü root'a ait kalır.
   `kur.sh` bunu artık kendisi onarır (gerekirse bir kez şifre sorar). Kurulumu
@@ -166,7 +214,13 @@ make uninstall  # kaydı ve uygulamayı kaldır
 
 ## Bilinen sınırlar
 
-- Yalnızca **arm64** (Apple Silicon); Intel Mac desteklenmez.
+- **Intel (`x86_64`) yolu gerçek donanımda test edilmedi.** Yamalar saf Java
+  olduğu için mimariden bağımsızdır ve derleme hattı mimariyi üç ayrı yerde
+  denetler; yine de uçtan uca doğrulama yalnızca Apple Silicon'da yapıldı.
+  Intel'de hedeflenen ve önerilen sürüm **macOS 13 (Ventura)**.
+- Üretilen `.app` **evrensel (universal) değildir**; derlendiği makinenin
+  mimarisini taşır. Bir Mac'te derleyip diğerine kopyalamayın — her makinede
+  `kur.sh`/`make install` çalıştırın.
 - **Notarize edilmemiştir** (ad-hoc imza).
 - Kart tipi: **AKİS** (doğrulanan). Diğer token'lar (SafeNet, SafeSign,
   IDPrime, OpenSC) sürücü listesine eklendi ama donanım olmadığı için test

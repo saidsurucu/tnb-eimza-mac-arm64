@@ -86,17 +86,10 @@ if [ "$ARCH_SWITCH" = "1" ]; then
   exec arch -arm64 /bin/bash "$REPO_ROOT/kur.sh" "$@"
 fi
 
-# 4) Build + kur + tarayıcı kaydı
-if [ ! -f assets/TNBTeknolojiImza.icns ]; then
-  info "İkon üretiliyor..."; ./scripts/make-icns.sh >/dev/null || warn "ikon üretilemedi (kozmetik)"
-fi
-info "Runtime ve build aracı hazırlanıyor..."; make jre
-info "Uygulama derleniyor..."; make app
-info "/Applications'a kuruluyor ve tarayıcıya kaydediliyor..."; make install
-
-# 5) PKCS#11 sürücüsü arm64 mi?
+# 4) PKCS#11 sürücüsü arm64 mi?
 # Uygulama sürücüyü KENDİ arm64 sürecine yükler; Intel-only bir dylib yüklenemez
-# ("incompatible architecture") ve sertifika listesi boş kalır.
+# ("incompatible architecture"). Build içindeki ShimTest de sürücüyü yükler;
+# bu yüzden denetim build ve kurulumdan ÖNCE yapılmalıdır.
 found_arm64=0; found_any=0
 for drv in /usr/local/lib/libakisp11.dylib \
            /usr/local/lib/libeTPkcs11.dylib \
@@ -117,8 +110,18 @@ if [ "$found_any" = "0" ]; then
   warn "  https://akiskart.bilgem.tubitak.gov.tr/tr/destek/"
 elif [ "$found_arm64" = "0" ]; then
   warn "Kurulu sürücülerin hiçbirinde arm64 dilimi yok — kart okunamaz."
-  warn "Sürücünün Apple Silicon sürümünü kurup kur.sh'i tekrar çalıştırın."
+  warn "AKİS kartı için TÜBİTAK BİLGEM'den 'Mac OS Arm (Apple Silicon)' paketini kurun:"
+  warn "  https://akiskart.bilgem.tubitak.gov.tr/tr/destek/"
+  die "Sürücünün Apple Silicon sürümünü kurup kur.sh'i tekrar çalıştırın."
 fi
+
+# 5) Build + kur + tarayıcı kaydı
+if [ ! -f assets/TNBTeknolojiImza.icns ]; then
+  info "İkon üretiliyor..."; ./scripts/make-icns.sh >/dev/null || warn "ikon üretilemedi (kozmetik)"
+fi
+info "Runtime ve build aracı hazırlanıyor..."; make jre
+info "Uygulama derleniyor..."; make app
+info "/Applications'a kuruluyor ve tarayıcıya kaydediliyor..."; make install
 
 echo
 info "Bitti."

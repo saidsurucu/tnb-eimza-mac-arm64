@@ -50,6 +50,8 @@ Doğrulama (`arm64` içermeli):
 lipo -archs /usr/local/lib/libakisp11.dylib
 ```
 
+`kur.sh`, sürücü mimarisini derlemeden önce denetler. Denetlenen sürücülerin hiçbiri `arm64` içermiyorsa indirme bağlantısı ve yeniden deneme talimatıyla durur; Apple Silicon sürücüsünü kurduktan sonra kurulumu tekrar çalıştırın.
+
 Bilinen sürücü adları bilinen dizinlerde taranır ve **yalnızca diskte gerçekten
 var olan** yollar denenir; liste ve arama dizinleri için bkz.
 `patch/MacPkcs11Modules.java`. Listeyi geçici olarak değiştirmek için
